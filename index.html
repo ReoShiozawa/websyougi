@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>オンライン将棋</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+            font-family: 'Arial', sans-serif;
+        }
+
+        #game-container {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(9, 50px);
+            gap: 1px;
+            background-color: #deb887;
+            padding: 10px;
+            border: 5px solid #8b4513;
+            margin: 20px 0;
+        }
+
+        .cell {
+            width: 50px;
+            height: 50px;
+            background-color: #ffdead;
+            border: 1px solid #8b4513;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .cell:hover {
+            background-color: #ffe4b5;
+        }
+
+        .piece {
+            font-size: 24px;
+            user-select: none;
+            transition: transform 0.2s;
+        }
+
+        .piece:hover {
+            transform: scale(1.1);
+        }
+
+        .piece.gote {
+            transform: rotate(180deg);
+        }
+
+        .selected {
+            background-color: #ffff99;
+        }
+
+        .captured-pieces {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            padding: 10px;
+            border: 2px solid #8b4513;
+            border-radius: 5px;
+            min-height: 40px;
+            background-color: #fff8dc;
+        }
+
+        .possible-move {
+            background-color: rgba(144, 238, 144, 0.5);
+        }
+
+        .captured-piece {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 40px;
+            height: 40px;
+            background-color: #ffe4b5;
+            border: 1px solid #8b4513;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .captured-piece:hover {
+            transform: scale(1.1);
+            background-color: #ffdab9;
+        }
+
+        .captured-piece.gote {
+            transform: rotate(180deg);
+        }
+
+        .player-turn {
+            text-align: center;
+            margin: 10px 0;
+            font-weight: bold;
+            color: #8b4513;
+        }
+
+        .check-warning {
+            color: red;
+            font-weight: bold;
+            animation: blink 1s infinite;
+        }
+
+        .king-in-check {
+            background-color: rgba(255, 0, 0, 0.3) !important;
+        }
+
+        @keyframes blink {
+            0% { opacity: 1.0; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1.0; }
+        }
+
+        .game-result {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            text-align: center;
+            font-size: 24px;
+            color: #8b4513;
+        }
+
+        .control-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin: 10px 0;
+        }
+
+        .control-button {
+            padding: 8px 16px;
+            background-color: #8b4513;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .control-button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .control-button:hover:not(:disabled) {
+            background-color: #a0522d;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div class="player-turn" id="turn-indicator"></div>
+        <div class="control-buttons">
+            <button id="undo-button" class="control-button" disabled>待った</button>
+        </div>
+        <div class="captured-pieces" id="captured-gote"></div>
+        <div id="shogi-board" class="board"></div>
+        <div class="captured-pieces" id="captured-sente"></div>
+    </div>
+
+    <script>
+        const initialBoard = [
+            [
+                {piece: '香', owner: 'gote'}, {piece: '桂', owner: 'gote'}, {piece: '銀', owner: 'gote'},
+                {piece: '金', owner: 'gote'}, {piece: '王', owner: 'gote'}, {piece: '金', owner: 'gote'},
+                {piece: '銀', owner: 'gote'}, {piece: '桂', owner: 'gote'}, {piece: '香', owner: 'gote'}
+            ],
+            [
+                {piece: '_', owner: null}, {piece: '飛', owner: 'gote'}, {piece: '_', owner: null},
+                {piece: '_', owner: null}, {piece: '_', owner: null}, {piece: '_', owner: null},
+                {piece: '_', owner: null}, {piece: '角', owner: 'gote'}, {piece: '_', owner: null}
+            ],
+            [
+                {piece: '歩', owner: 'gote'}, {piece: '歩', owner: 'gote'}, {piece: '歩', owner: 'gote'},
+                {piece: '歩', owner: 'gote'}, {piece: '歩', owner: 'gote'}, {piece: '歩', owner: 'gote'},
+                {piece: '歩', owner: 'gote'}, {piece: '歩', owner: 'gote'}, {piece: '歩', owner: 'gote'}
+            ],
+            Array(9).fill({piece: '_', owner: null}),
+            Array(9).fill({piece: '_', owner: null}),
+            Array(9).fill({piece: '_', owner: null}),
+            [
+                {piece: '歩', owner: 'sente'}, {piece: '歩', owner: 'sente'}, {piece: '歩', owner: 'sente'},
+                {piece: '歩', owner: 'sente'}, {piece: '歩', owner: 'sente'}, {piece: '歩', owner: 'sente'},
+                {piece: '歩', owner: 'sente'}, {piece: '歩', owner: 'sente'}, {piece: '歩', owner: 'sente'}
+            ],
+            [
+                {piece: '_', owner: null}, {piece: '角', owner: 'sente'}, {piece: '_', owner: null},
+                {piece: '_', owner: null}, {piece: '_', owner: null}, {piece: '_', owner: null},
+                {piece: '_', owner: null}, {piece: '飛', owner: 'sente'}, {piece: '_', owner: null}
+            ],
+            [
+                {piece: '香', owner: 'sente'}, {piece: '桂', owner: 'sente'}, {piece: '銀', owner: 'sente'},
+                {piece: '金', owner: 'sente'}, {piece: '玉', owner: 'sente'}, {piece: '金', owner: 'sente'},
+                {piece: '銀', owner: 'sente'}, {piece: '桂', owner: 'sente'}, {piece: '香', owner: 'sente'}
+            ]
+        ];
+
+        class ShogiGame {
+            constructor() {
+                this.board = JSON.parse(JSON.stringify(initialBoard));
+                this.selectedCell = null;
+                this.currentPlayer = 'sente'; // 先手
+                this.capturedPieces = { sente: [], gote: [] };
+                this.promotionZone = { sente: [0, 1, 2], gote: [6, 7, 8] };
+                this.possibleMoves = [];
+                this.selectedPiece = null; // 持ち駒選択用
+                this.gameEnded = false;
+                this.moveHistory = [];
+                this.initializeBoard();
+                this.updateTurnIndicator();
+                this.setupUndoButton();
+            }
+
+            setupUndoButton() {
+                const undoButton = document.getElementById('undo-button');
+                undoButton.addEventListener('click', () => this.undoLastMove());
+                this.updateUndoButton();
+            }
+
+            updateUndoButton() {
+                const undoButton = document.getElementById('undo-button');
+                undoButton.disabled = this.moveHistory.length === 0 || this.gameEnded;
+            }
+
+            saveBoardState() {
+                this.moveHistory.push({
+                    board: JSON.parse(JSON.stringify(this.board)),
+                    capturedPieces: JSON.parse(JSON.stringify(this.capturedPieces)),
+                    currentPlayer: this.currentPlayer
+                });
+                this.updateUndoButton();
+            }
+
+            undoLastMove() {
+                if (this.moveHistory.length === 0) return;
+                
+                const lastState = this.moveHistory.pop();
+                this.board = lastState.board;
+                this.capturedPieces = lastState.capturedPieces;
+                this.currentPlayer = lastState.currentPlayer;
+                
+                this.initializeBoard();
+                this.updateTurnIndicator();
+                this.updateUndoButton();
+                
+                // 王手表示をクリア
+                document.getElementById('turn-indicator').classList.remove('check-warning');
+                document.querySelectorAll('.king-in-check').forEach(cell => {
+                    cell.classList.remove('king-in-check');
+                });
+            }
+
+            initializeBoard() {
+                const boardElement = document.getElementById('shogi-board');
+                boardElement.innerHTML = '';
+
+                for (let y = 0; y < 9; y++) {
+                    for (let x = 0; x < 9; x++) {
+                        const cell = document.createElement('div');
+                        cell.className = 'cell';
+                        cell.dataset.x = x;
+                        cell.dataset.y = y;
+                        
+                        if (this.board[y][x].piece !== '_') {
+                            const piece = document.createElement('div');
+                            piece.className = 'piece';
+                            if (this.board[y][x].owner === 'gote') piece.classList.add('gote');
+                            piece.textContent = this.board[y][x].piece;
+                            piece.dataset.owner = this.board[y][x].owner;
+                            cell.appendChild(piece);
+                        }
+
+                        cell.addEventListener('click', (e) => this.handleCellClick(e));
+                        boardElement.appendChild(cell);
+                    }
+                }
+
+                this.updateCapturedPieces();
+            }
+
+            isValidMove(fromX, fromY, toX, toY) {
+                const piece = this.board[fromY][fromX].piece;
+                const owner = this.board[fromY][fromX].owner;
+                
+                // 自分の駒への移動を禁止
+                if (this.board[toY][toX].piece !== '_') {
+                    if (this.board[toY][toX].owner === owner) return false;
+                }
+
+                if (owner !== this.currentPlayer) return false;
+
+                // 各駒の移動ルールを定義
+                const moveRules = {
+                    // 歩の動き
+                    '歩': (dx, dy) => {
+                        return this.currentPlayer === 'sente' ? (dx === 0 && dy === -1) : (dx === 0 && dy === 1);
+                    },
+                    // と金の動き
+                    'と': (dx, dy) => {
+                        return (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) && !(Math.abs(dx) === 1 && Math.abs(dy) === 1);
+                    },
+                    // 香車の動き
+                    '香': (dx, dy) => {
+                        return dx === 0 && (this.currentPlayer === 'sente' ? dy < 0 : dy > 0) && this.isPathClear(fromX, fromY, toX, toY);
+                    },
+                    // 成香の動き
+                    '杏': (dx, dy) => {
+                        return (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) && !(Math.abs(dx) === 1 && Math.abs(dy) === 1);
+                    },
+                    // 桂馬の動き
+                    '桂': (dx, dy) => {
+                        return (Math.abs(dx) === 1 && (this.currentPlayer === 'sente' ? dy === -2 : dy === 2));
+                    },
+                    // 成桂の動き
+                    '圭': (dx, dy) => {
+                        return (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) && !(Math.abs(dx) === 1 && Math.abs(dy) === 1);
+                    },
+                    // 銀の動き
+                    '銀': (dx, dy) => {
+                        return (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) && 
+                               ((this.currentPlayer === 'sente' && dy <= 0) || (this.currentPlayer === 'gote' && dy >= 0)) && 
+                               !(Math.abs(dx) === 1 && dy === 0);
+                    },
+                    // 成銀の動き
+                    '全': (dx, dy) => {
+                        return (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) && !(Math.abs(dx) === 1 && Math.abs(dy) === 1);
+                    },
+                    // 金の動き
+                    '金': (dx, dy) => {
+                        return (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) && !(Math.abs(dx) === 1 && Math.abs(dy) === 1);
+                    },
+                    // 王と玉の動き
+                    '王': (dx, dy) => Math.abs(dx) <= 1 && Math.abs(dy) <= 1,
+                    '玉': (dx, dy) => Math.abs(dx) <= 1 && Math.abs(dy) <= 1,
+                    // 飛車の動き
+                    '飛': (dx, dy) => {
+                        return (dx === 0 || dy === 0) && this.isPathClear(fromX, fromY, toX, toY);
+                    },
+                    // 龍の動き
+                    '龍': (dx, dy) => {
+                        return ((dx === 0 || dy === 0) && this.isPathClear(fromX, fromY, toX, toY)) || 
+                               (Math.abs(dx) === 1 && Math.abs(dy) === 1);
+                    },
+                    // 角の動き
+                    '角': (dx, dy) => {
+                        return Math.abs(dx) === Math.abs(dy) && this.isPathClear(fromX, fromY, toX, toY);
+                    },
+                    // 馬の動き
+                    '馬': (dx, dy) => {
+                        return (Math.abs(dx) === Math.abs(dy) && this.isPathClear(fromX, fromY, toX, toY)) || 
+                               (Math.abs(dx) <= 1 && Math.abs(dy) <= 1);
+                    }
+                };
+
+                const dx = toX - fromX;
+                const dy = toY - fromY;
+                return moveRules[piece]?.(dx, dy);
+            }
+
+            isPathClear(fromX, fromY, toX, toY) {
+                const dx = Math.sign(toX - fromX);
+                const dy = Math.sign(toY - fromY);
+                let x = fromX + dx;
+                let y = fromY + dy;
+
+                while (x !== toX || y !== toY) {
+                    if (this.board[y][x].piece !== '_') return false;
+                    x += dx;
+                    y += dy;
+                }
+
+                return true;
+            }
+
+            handleCellClick(event) {
+                if (this.gameEnded) return;
+                const cell = event.currentTarget;
+                const x = parseInt(cell.dataset.x);
+                const y = parseInt(cell.dataset.y);
+
+                // 持ち駒を選択している場合
+                if (this.selectedPiece) {
+                    if (this.dropPiece(this.selectedPiece, x, y)) {
+                        this.saveBoardState();
+                        // 持ち駒を打った後の王手・詰み判定
+                        if (this.isCheck(this.currentPlayer)) {
+                            this.clearSelection();
+                            return false;
+                        }
+                        if (this.isCheck(this.currentPlayer === 'sente' ? 'gote' : 'sente')) {
+                            if (this.isCheckmate(this.currentPlayer === 'sente' ? 'gote' : 'sente')) {
+                                this.declareWinner(this.currentPlayer);
+                            }
+                        }
+                        this.clearSelection();
+                    }
+                    return;
+                }
+
+                if (!this.selectedCell) {
+                    if (this.board[y][x].piece !== '_') {
+                        const piece = cell.querySelector('.piece');
+                        if (piece.dataset.owner === this.currentPlayer) {
+                            this.selectedCell = { x, y };
+                            cell.classList.add('selected');
+                            this.showPossibleMoves(x, y);
+                        }
+                    }
+                } else {
+                    const fromX = this.selectedCell.x;
+                    const fromY = this.selectedCell.y;
+
+                    if (this.isValidMove(fromX, fromY, x, y)) {
+                        // 移動前の状態を保存
+                        this.saveBoardState();
+
+                        // 移動処理
+                        const capturedPiece = this.board[y][x];
+                        
+                        // 仮の移動を行い、自玉に王手がかかるかチェック
+                        const tempBoard = JSON.parse(JSON.stringify(this.board));
+                        const tempCaptured = JSON.parse(JSON.stringify(this.capturedPieces));
+                        
+                        this.board[y][x] = {
+                            piece: this.board[fromY][fromX].piece,
+                            owner: this.currentPlayer
+                        };
+                        this.board[fromY][fromX] = {piece: '_', owner: null};
+
+                        if (this.isCheck(this.currentPlayer)) {
+                            this.board = tempBoard;
+                            this.capturedPieces = tempCaptured;
+                            this.clearSelection();
+                            alert('自玉に王手がかかる移動はできません');
+                            return false;
+                        }
+
+                        // 実際の移動処理
+                        if (capturedPiece.piece === '王' || capturedPiece.piece === '玉') {
+                            this.declareWinner(this.currentPlayer);
+                            return;
+                        }
+
+                        if (capturedPiece.piece !== '_') {
+                            const normalizedPiece = this.getNormalizedPiece(capturedPiece.piece);
+                            this.capturedPieces[this.currentPlayer].push(normalizedPiece);
+                        }
+
+                        // 成り判定
+                        if (this.canPromote(y, fromY, this.board[y][x].piece)) {
+                            if (confirm('駒を成りますか？')) {
+                                this.board[y][x].piece = this.getPromotedPiece(this.board[y][x].piece);
+                            }
+                        }
+
+                        const nextPlayer = this.currentPlayer === 'sente' ? 'gote' : 'sente';
+                        this.currentPlayer = nextPlayer;
+
+                        // 移動後の相手玉への王手チェック
+                        if (this.isCheck(this.currentPlayer)) {
+                            if (this.isCheckmate(this.currentPlayer)) {
+                                this.declareWinner(this.currentPlayer === 'sente' ? 'gote' : 'sente');
+                            }
+                        }
+
+                        this.initializeBoard();
+                        this.updateTurnIndicator();
+                    }
+
+                    this.clearSelection();
+                }
+            }
+
+            hasNifu(col) {
+                let pawnCount = 0;
+                for (let row = 0; row < 9; row++) {
+                    if (this.board[row][col].piece === '歩' && 
+                        ((row < 4 && this.currentPlayer === 'gote') || 
+                         (row > 4 && this.currentPlayer === 'sente'))) {
+                        pawnCount++;
+                    }
+                }
+                return pawnCount >= 1;
+            }
+
+            getDropLocations(piece) {
+                const locations = [];
+                for (let y = 0; y < 9; y++) {
+                    for (let x = 0; x < 9; x++) {
+                        if (this.board[y][x].piece === '_') {
+                            // 二歩チェック
+                            if (piece === '歩' && this.hasNifu(x)) continue;
+                            
+                            // 打ち駒の制限
+                            if (this.currentPlayer === 'sente') {
+                                if (piece === '歩' && y === 0) continue;
+                                if (piece === '香' && y === 0) continue;
+                                if (piece === '桂' && y <= 1) continue;
+                            } else {
+                                if (piece === '歩' && y === 8) continue;
+                                if (piece === '香' && y === 8) continue;
+                                if (piece === '桂' && y >= 7) continue;
+                            }
+                            locations.push({x, y});
+                        }
+                    }
+                }
+                return locations;
+            }
+
+            isCheck(player) {
+                const kingPos = this.findKing(player);
+                if (!kingPos) return false;
+
+                let isInCheck = false;
+                for (let y = 0; y < 9; y++) {
+                    for (let x = 0; x < 9; x++) {
+                        if (this.board[y][x].piece !== '_' && 
+                            this.board[y][x].owner !== player) {
+                            const tempCurrentPlayer = this.currentPlayer;
+                            this.currentPlayer = this.board[y][x].owner;
+                            const canAttackKing = this.isValidMove(x, y, kingPos.x, kingPos.y);
+                            this.currentPlayer = tempCurrentPlayer;
+                            
+                            if (canAttackKing) {
+                                isInCheck = true;
+                                const indicator = document.getElementById('turn-indicator');
+                                indicator.classList.add('check-warning');
+                                indicator.textContent = `${player === 'sente' ? '先手' : '後手'}の王が王手です！`;
+                                const kingCell = document.querySelector(
+                                    `.cell[data-x="${kingPos.x}"][data-y="${kingPos.y}"]`);
+                                kingCell.classList.add('king-in-check');
+                                break;
+                            }
+                        }
+                    }
+                    if (isInCheck) break;
+                }
+
+                if (!isInCheck) {
+                    document.getElementById('turn-indicator').classList.remove('check-warning');
+                    document.querySelectorAll('.king-in-check').forEach(cell => {
+                        cell.classList.remove('king-in-check');
+                    });
+                }
+
+                return isInCheck;
+            }
+
+            isCheckmate(player) {
+                if (!this.isCheck(player)) return false;
+
+                // 王の移動可能性をチェック
+                const kingPos = this.findKing(player);
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        const newX = kingPos.x + dx;
+                        const newY = kingPos.y + dy;
+                        if (newX >= 0 && newX < 9 && newY >= 0 && newY < 9) {
+                            const tempBoard = JSON.parse(JSON.stringify(this.board));
+                            if (this.isValidMove(kingPos.x, kingPos.y, newX, newY)) {
+                                this.board[newY][newX] = this.board[kingPos.y][kingPos.x];
+                                this.board[kingPos.y][kingPos.x] = {piece: '_', owner: null};
+                                const stillInCheck = this.isCheck(player);
+                                this.board = tempBoard;
+                                if (!stillInCheck) return false;
+                            }
+                        }
+                    }
+                }
+
+                // 他の駒による救済可能性をチェック
+                for (let y = 0; y < 9; y++) {
+                    for (let x = 0; x < 9; x++) {
+                        if (this.board[y][x].piece !== '_' && this.board[y][x].owner === player) {
+                            for (let toY = 0; toY < 9; toY++) {
+                                for (let toX = 0; toX < 9; toX++) {
+                                    if (this.isValidMove(x, y, toX, toY)) {
+                                        const tempBoard = JSON.parse(JSON.stringify(this.board));
+                                        this.board[toY][toX] = this.board[y][x];
+                                        this.board[y][x] = {piece: '_', owner: null};
+                                        const stillInCheck = this.isCheck(player);
+                                        this.board = tempBoard;
+                                        if (!stillInCheck) return false;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 持ち駒による救済
+                if (this.capturedPieces[player].length > 0) {
+                    for (const piece of this.capturedPieces[player]) {
+                        const locations = this.getDropLocations(piece);
+                        for (const loc of locations) {
+                            const tempBoard = JSON.parse(JSON.stringify(this.board));
+                            this.board[loc.y][loc.x] = {piece: piece, owner: player};
+                            const stillInCheck = this.isCheck(player);
+                            this.board = tempBoard;
+                            if (!stillInCheck) return false;
+                        }
+                    }
+                }
+
+                return true;
+            }
+
+            declareWinner(winner) {
+                if (this.gameEnded) return;
+                this.gameEnded = true;
+
+                const resultDiv = document.createElement('div');
+                resultDiv.className = 'game-result';
+                resultDiv.textContent = `${winner === 'sente' ? '先手' : '後手'}の勝利です！`;
+                document.body.appendChild(resultDiv);
+
+                // クリックで結果表示を消せるように
+                resultDiv.addEventListener('click', () => {
+                    resultDiv.remove();
+                });
+            }
+
+            findKing(player) {
+                const kingSymbol = player === 'sente' ? '玉' : '王';
+                for (let y = 0; y < 9; y++) {
+                    for (let x = 0; x < 9; x++) {
+                        if (this.board[y][x].piece === kingSymbol) {
+                            return {x, y};
+                        }
+                    }
+                }
+                return null;
+            }
+
+            showPossibleMoves(x, y) {
+                this.clearPossibleMoves();
+                if (this.board[y][x].piece === '_') return;
+
+                for (let toY = 0; toY < 9; toY++) {
+                    for (let toX = 0; toX < 9; toX++) {
+                        if (this.isValidMove(x, y, toX, toY)) {
+                            const cell = document.querySelector(
+                                `.cell[data-x="${toX}"][data-y="${toY}"]`);
+                            cell.classList.add('possible-move');
+                            this.possibleMoves.push({x: toX, y: toY});
+                        }
+                    }
+                }
+            }
+
+            clearPossibleMoves() {
+                document.querySelectorAll('.possible-move')
+                    .forEach(cell => cell.classList.remove('possible-move'));
+                this.possibleMoves = [];
+            }
+
+            dropPiece(piece, x, y) {
+                const index = this.capturedPieces[this.currentPlayer]
+                    .indexOf(piece);
+                if (index === -1) return false;
+
+                if (piece === '歩' && this.hasNifu(x)) return false;
+                
+                this.board[y][x] = {piece: piece, owner: this.currentPlayer};
+                this.capturedPieces[this.currentPlayer].splice(index, 1);
+                this.currentPlayer = this.currentPlayer === 'sente' ? 'gote' : 'sente';
+                this.initializeBoard();
+                this.updateTurnIndicator();
+                return true;
+            }
+
+            canPromote(toY, fromY, piece) {
+                const promotionZone = this.currentPlayer === 'sente' ? [0, 1, 2] : [6, 7, 8];
+                return (promotionZone.includes(toY) || promotionZone.includes(fromY)) && 
+                       ['歩', '香', '桂', '銀', '角', '飛'].includes(piece);
+            }
+
+            getPromotedPiece(piece) {
+                const promotionMap = {
+                    '歩': 'と',
+                    '香': '杏',
+                    '桂': '圭',
+                    '銀': '全',
+                    '角': '馬',
+                    '飛': '龍'
+                };
+                return promotionMap[piece] || piece;
+            }
+
+            getNormalizedPiece(piece) {
+                const reversePromotionMap = {
+                    'と': '歩',
+                    '杏': '香',
+                    '圭': '桂',
+                    '全': '銀',
+                    '馬': '角',
+                    '龍': '飛'
+                };
+                return reversePromotionMap[piece] || piece;
+            }
+
+            updateCapturedPieces() {
+                ['sente', 'gote'].forEach(player => {
+                    const container = document.getElementById(`captured-${player}`);
+                    container.innerHTML = '';
+                    this.capturedPieces[player].forEach(piece => {
+                        const pieceElement = document.createElement('div');
+                        pieceElement.className = `piece captured-piece ${player}`;
+                        pieceElement.textContent = piece;
+                        pieceElement.dataset.owner = player;
+                        if (player === this.currentPlayer) {
+                            pieceElement.addEventListener('click', 
+                                () => this.handleCapturedPieceClick(piece));
+                            pieceElement.style.cursor = 'pointer';
+                        }
+                        container.appendChild(pieceElement);
+                    });
+                });
+            }
+
+            updateTurnIndicator() {
+                const indicator = document.getElementById('turn-indicator');
+                indicator.textContent = `${this.currentPlayer === 'sente' ? '先手' : '後手'}の手番です`;
+            }
+
+            handleCapturedPieceClick(piece) {
+                this.clearSelection();
+                this.selectedPiece = piece;
+                const locations = this.getDropLocations(piece);
+                locations.forEach(loc => {
+                    const cell = document.querySelector(
+                        `.cell[data-x="${loc.x}"][data-y="${loc.y}"]`
+                    );
+                    cell.classList.add('possible-move');
+                });
+            }
+
+            clearSelection() {
+                document.querySelector('.selected')?.classList.remove('selected');
+                this.selectedCell = null;
+                this.selectedPiece = null;
+                this.clearPossibleMoves();
+            }
+        }
+
+        // ゲームの開始
+        const game = new ShogiGame();
+    </script>
+</body>
+</html>
